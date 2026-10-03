@@ -1,0 +1,1061 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scalping Radar 15m</title>
+<style>
+:root{--bg:#0b0e14;--card:#131824;--bd:#232b3d;--tx:#e6e9f0;--mut:#8791a7;--g:#22c55e;--r:#ef4444;--y:#f5b53d;--b:#4f8cff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:14px system-ui,Segoe UI,Tahoma,sans-serif;padding:14px}
+.hd h1{font-size:22px;margin:0}.hd small{color:var(--mut)}.hd{margin-bottom:12px}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:10px;margin-bottom:12px;position:sticky;top:0;z-index:9;backdrop-filter:blur(10px);background:#131824ee}
+input,select,button{background:#0e1320;color:var(--tx);border:1px solid var(--bd);border-radius:6px;padding:5px 8px;font:inherit}
+input{width:180px}button{cursor:pointer;background:var(--b);border:0;padding:6px 14px;font-weight:600}
+button.s{background:#0e1320;border:1px solid var(--bd);padding:2px 6px;font-weight:400}
+label{color:var(--mut);font-size:12px;display:flex;gap:4px;align-items:center}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:10px;overflow:auto;box-shadow:0 4px 20px #0006;margin-bottom:12px}
+table{width:100%;border-collapse:collapse;font-size:13px;min-width:640px}th{color:var(--mut);font-weight:500;text-align:right;padding:6px;border-bottom:1px solid var(--bd);font-size:11px}
+td{padding:6px;border-bottom:1px solid #1a2132;white-space:nowrap}
+.up{color:var(--g)}.dn{color:var(--r)}.mut{color:var(--mut)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:6px;margin:8px 0}
+.tile{background:#0e1320;border:1px solid var(--bd);border-radius:8px;padding:6px 8px}
+.tile span{display:block;color:var(--mut);font-size:11px}.tile b{font-size:14px}
+.pl{margin-top:10px;border-top:1px solid var(--bd);padding-top:8px;line-height:1.8}
+.pl table{margin:6px 0}
+.plan-status{display:inline-block;padding:1px 6px;border-radius:99px;font-size:10px;font-weight:600;margin-inline-end:4px}
+.plan-status.direct{background:#22c55e22;color:var(--g)}
+.plan-status.wait{background:#f5b53d22;color:var(--y)}
+.plan-status.chase{background:#ef444422;color:var(--r)}
+.plan-status.none{background:#64748b22;color:var(--mut)}
+canvas{width:100%;height:560px;touch-action:pan-y;cursor:crosshair;display:block;margin-top:8px}
+.badge{padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600}
+.badge.READY{background:#4f8cff22;color:var(--b)}
+.badge.LAUNCHED{background:#22c55e22;color:var(--g)}
+.badge.WATCH{background:#f5b53d22;color:var(--y)}
+.badge.NONE{background:#64748b22;color:var(--mut)}
+.hint{background:#4f8cff11;border:1px solid #4f8cff33;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:12px;color:var(--mut)}
+.hint b{color:var(--b)}
+</style>
+</head>
+<body>
+<div class="hd">
+  <h1>⚡ Scalping Radar <span class="mut" style="font-size:13px">15m</span></h1>
+  <small>تحليل الدخول الدقيق على فريم 15 دقيقة — يعمل جنبًا إلى جنب مع Binance Radar Pro (4H)</small>
+</div>
+
+<div class="hint">
+  <b>💡 كيف تستخدم:</b> من النظام الأساسي (4H) اختر عملة → افتح هذا الملف → اكتب رمز العملة → اضغط بحث.
+  <br><b>القاعدة:</b> الاتجاه من 4H، الدخول من 15m.
+</div>
+
+<div class="bar">
+  <input id="q" placeholder="🔎 اكتب رمز العملة: BTC أو SOL" list="dl">
+  <datalist id="dl"></datalist>
+  <button id="sb">بحث</button>
+  <label>تحديث تلقائي (ث)<input id="every" type="number" value="30" min="10" style="width:60px"></label>
+  <label><input id="auto" type="checkbox" style="width:auto">تحديث تلقائي</label>
+  <span id="st" class="mut">جاهز</span>
+</div>
+
+<div id="content">
+  <div class="mut" style="text-align:center;padding:60px 20px;font-size:15px">
+    ابحث عن عملة للبدء — مثال: BTC, ETH, SOL, AERO
+  </div>
+</div>
+
+<canvas id="cv" style="display:none"></canvas>
+
+<div class="card" id="indicators" style="display:none"></div>
+<div class="card" id="patterns" style="display:none"></div>
+<div class="card" id="plan" style="display:none"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const API = ['https://api.binance.com', 'https://data-api.binance.vision'];
+
+async function api(p) {
+  for (const b of API) {
+    try { const r = await fetch(b + p); if (r.ok) return await r.json(); } catch(e) {}
+  }
+  throw new Error('API failed');
+}
+
+const fmt = p => {
+  if (!Number.isFinite(p)) return '–';
+  const a = Math.abs(p);
+  if (a >= 1000) return p.toFixed(2);
+  if (a >= 100) return p.toFixed(3);
+  if (a >= 1) return p.toFixed(4);
+  if (a >= 0.01) return p.toFixed(5);
+  if (a >= 0.0001) return p.toFixed(6);
+  return p.toExponential(4);
+};
+const M = v => v >= 1e9 ? (v / 1e9).toFixed(2) + 'B' : v >= 1e6 ? (v / 1e6).toFixed(2) + 'M' : v >= 1e3 ? (v / 1e3).toFixed(1) + 'K' : v.toFixed(0);
+const pcs = v => (v >= 0 ? '+' : '') + v.toFixed(1) + '%';
+
+// ===== المؤشرات القياسية =====
+// EMA: α = 2/(n+1)، بذرة SMA
+function emaS(a, n) {
+  const r = Array(a.length).fill(null), f = a.findIndex(v => v != null), m = 2 / (n + 1);
+  if (f < 0 || a.length - f < n) return r;
+  let e = 0;
+  for (let i = f; i < f + n; i++) e += a[i];
+  e /= n;
+  r[f + n - 1] = e;
+  for (let i = f + n; i < a.length; i++) { e = a[i] * m + e * (1 - m); r[i] = e; }
+  return r;
+}
+function ema(a, n) { const r = emaS(a, n); const v = r[r.length - 1]; return Number.isFinite(v) ? v : null; }
+
+// RSI Wilder: α=1/n، بذرة SMA
+function rsiS(c, n = 14) {
+  const r = Array(c.length).fill(null);
+  if (c.length <= n) return r;
+  let g = 0, l = 0;
+  for (let i = 1; i <= n; i++) { const d = c[i] - c[i - 1]; d > 0 ? g += d : l -= d; }
+  g /= n; l /= n;
+  r[n] = l ? 100 - 100 / (1 + g / l) : 100;
+  for (let i = n + 1; i < c.length; i++) {
+    const d = c[i] - c[i - 1];
+    g = (g * (n - 1) + (d > 0 ? d : 0)) / n;
+    l = (l * (n - 1) + (d < 0 ? -d : 0)) / n;
+    r[i] = l ? 100 - 100 / (1 + g / l) : 100;
+  }
+  return r;
+}
+
+// ATR Wilder: RMA
+function atrS(k, n = 14) {
+  const r = Array(k.length).fill(null);
+  if (k.length < n) return r;
+  const tr = k.map((v, i) => i ? Math.max(v.h - v.l, Math.abs(v.h - k[i - 1].c), Math.abs(v.l - k[i - 1].c)) : v.h - v.l);
+  let a = 0;
+  for (let i = 0; i < n; i++) a += tr[i];
+  a /= n;
+  r[n - 1] = a;
+  for (let i = n; i < k.length; i++) { a = (a * (n - 1) + tr[i]) / n; r[i] = a; }
+  return r;
+}
+function atr(k, n = 14) {
+  const r = atrS(k, n), v = r[r.length - 1];
+  return v != null ? v : k.reduce((s, x) => s + x.h - x.l, 0) / k.length;
+}
+
+// MACD: 12/26/9 (Appel)
+function macdS(c) {
+  const f = emaS(c, 12), s = emaS(c, 26);
+  const m = c.map((_, i) => f[i] != null && s[i] != null ? f[i] - s[i] : null);
+  const g = emaS(m, 9);
+  return { m, g, h: m.map((v, i) => v != null && g[i] != null ? v - g[i] : null) };
+}
+
+// Bollinger: 20, 2σ (σ ÷ n)
+function bbArr(c, n = 20) {
+  return c.map((_, i) => {
+    if (i < n - 1) return null;
+    const w = c.slice(i - n + 1, i + 1), mu = w.reduce((a, b) => a + b, 0) / n;
+    const sd = Math.sqrt(w.reduce((a, b) => a + (b - mu) ** 2, 0) / n);
+    return { u: mu + 2 * sd, l: mu - 2 * sd, m: mu };
+  });
+}
+
+// Pivots (fractals)
+function pivH(a, l = 2, r = 2) {
+  const o = [];
+  for (let i = l; i < a.length - r; i++) {
+    const v = a[i];
+    if (v == null) continue;
+    let ok = true;
+    for (let j = 1; j <= l && ok; j++) if (a[i - j] == null || a[i - j] >= v) ok = false;
+    for (let j = 1; j <= r && ok; j++) if (a[i + j] > v) ok = false;
+    if (ok) o.push(i);
+  }
+  return o;
+}
+function pivL(a, l = 2, r = 2) {
+  const o = [];
+  for (let i = l; i < a.length - r; i++) {
+    const v = a[i];
+    if (v == null) continue;
+    let ok = true;
+    for (let j = 1; j <= l && ok; j++) if (a[i - j] == null || a[i - j] <= v) ok = false;
+    for (let j = 1; j <= r && ok; j++) if (a[i + j] < v) ok = false;
+    if (ok) o.push(i);
+  }
+  return o;
+}
+
+// Zigzag من fractals 3/3
+function zz(k, n = 3) {
+  const H = pivH(k.map(v => v.h), n, n).map(i => ({ i, p: k[i].h, t: 'H' }));
+  const Lw = pivL(k.map(v => v.l), n, n).map(i => ({ i, p: k[i].l, t: 'L' }));
+  const Z = [];
+  [...H, ...Lw].sort((a, b) => a.i - b.i).forEach(q => {
+    const l = Z[Z.length - 1];
+    if (l && l.t == q.t) { if (q.t == 'H' ? q.p > l.p : q.p < l.p) Z[Z.length - 1] = q; }
+    else Z.push(q);
+  });
+  return Z;
+}
+
+// Linear Regression
+function fit(P) {
+  const n = P.length;
+  if (n < 2) return { m: 0, c: P[0] ? P[0].p : 0 };
+  const mx = P.reduce((a, b) => a + b.i, 0) / n, my = P.reduce((a, b) => a + b.p, 0) / n;
+  let a = 0, b = 0;
+  P.forEach(q => { a += (q.i - mx) * (q.p - my); b += (q.i - mx) ** 2; });
+  const m = b ? a / b : 0;
+  return { m, c: my - m * mx };
+}
+
+// Cluster levels
+function cluster(v) {
+  v.sort((a, b) => a - b);
+  const o = [];
+  const near = (x, mean) => mean !== 0 && Math.abs(x / mean - 1) < 0.006;
+  for (const x of v) {
+    const l = o[o.length - 1];
+    if (l && near(x, l.s / l.n)) { l.s += x; l.n++; }
+    else o.push({ s: x, n: 1 });
+  }
+  return o.map(l => ({ p: l.s / l.n, n: l.n }));
+}
+
+function levels(k, n = 3) {
+  const H = [], L = [];
+  for (let i = n; i < k.length - n; i++) {
+    let h = 1, l = 1;
+    for (let j = 1; j <= n; j++) {
+      if (k[i].h <= k[i - j].h || k[i].h <= k[i + j].h) h = 0;
+      if (k[i].l >= k[i - j].l || k[i].l >= k[i + j].l) l = 0;
+    }
+    if (h) H.push(k[i].h);
+    if (l) L.push(k[i].l);
+  }
+  return cluster([...H, ...L]);
+}
+
+// FVG (ICT)
+function fvgs(k) {
+  const z = [];
+  for (let i = 2; i < k.length; i++) {
+    const a = k[i - 2], c = k[i];
+    if (c.l > a.h) z.push({ t: 'bull', lo: a.h, hi: c.l, i });
+    else if (c.h < a.l) z.push({ t: 'bear', lo: c.h, hi: a.l, i });
+  }
+  return z.filter(g => (g.hi - g.lo) / g.lo > 0.002)
+    .filter(g => {
+      for (let j = g.i + 1; j < k.length; j++) {
+        if (g.t == 'bull' && k[j].l <= g.lo) return false;
+        if (g.t == 'bear' && k[j].h >= g.hi) return false;
+      }
+      return true;
+    });
+}
+
+// Sweep + FVG
+function sweepFvg(k) {
+  const n = k.length, at = atr(k),
+    SL = pivL(k.map(v => v.l), 2, 2), SH = pivH(k.map(v => v.h), 2, 2);
+  let b = null;
+  // Bull
+  for (let i = Math.max(6, n - 20); i < n - 1; i++) {
+    const t = SL.filter(j => j <= i - 3 && j > i - 60).slice(-3).find(j => k[i].l < k[j].l - 0.05 * at && k[i].c > k[j].l);
+    if (t == null) continue;
+    for (let j = i + 1; j < n; j++) {
+      if (j >= 2 && k[j].l > k[j - 2].h && k[j].l - k[j - 2].h >= .1 * at) {
+        const z = [k[j - 2].h, k[j].l];
+        if (k.slice(j + 1).some(v => v.c < z[0])) break;
+        b = { i, j, sw: k[t].l, low: k[i].l, z, stop: k[i].l, age: n - 1 - j, dir: 'bull' };
+        break;
+      }
+    }
+    if (b) break;
+  }
+  // Bear
+  if (!b) {
+    for (let i = Math.max(6, n - 20); i < n - 1; i++) {
+      const t = SH.filter(j => j <= i - 3 && j > i - 60).slice(-3).find(j => k[i].h > k[j].h + 0.05 * at && k[i].c < k[j].h);
+      if (t == null) continue;
+      for (let j = i + 1; j < n; j++) {
+        if (j >= 2 && k[j].h < k[j - 2].l && k[j - 2].l - k[j].h >= .1 * at) {
+          const z = [k[j].h, k[j - 2].l];
+          if (k.slice(j + 1).some(v => v.c > z[1])) break;
+          b = { i, j, sw: k[t].h, low: k[i].h, z, stop: k[i].h, age: n - 1 - j, dir: 'bear' };
+          break;
+        }
+      }
+      if (b) break;
+    }
+  }
+  if (!b) return null;
+  const P = k[n - 1].c, z = b.z;
+  b.ce = (z[0] + z[1]) / 2;
+  if (b.dir === 'bull') {
+    const tg = SH.map(j => k[j].h).filter(h => h > P).sort((x, y) => x - y)[0];
+    b.tp = tg != null ? tg : Math.max(...k.slice(-30).map(v => v.h));
+    const r = b.ce - b.stop;
+    b.rr = r > 0 ? (b.tp - b.ce) / r : 0;
+    b.state = P >= z[0] * .998 && P <= z[1] ? 'داخل منطقة الدخول ✅' : P > z[1] ? (P / z[1] - 1 < .02 ? 'قريب' : 'ابتعد') : 'أسفل الفجوة';
+  } else {
+    const tg = SL.map(j => k[j].l).filter(l => l < P).sort((x, y) => y - x)[0];
+    b.tp = tg != null ? tg : Math.min(...k.slice(-30).map(v => v.l));
+    const r = b.stop - b.ce;
+    b.rr = r > 0 ? (b.ce - b.tp) / r : 0;
+    b.state = P >= z[0] * .998 && P <= z[1] ? 'داخل منطقة الدخول ✅' : P < z[0] ? (1 - P / z[0] < .02 ? 'قريب' : 'ابتعد') : 'أعلى الفجوة';
+  }
+  return b;
+}
+
+// Volume Profile (24 صف، 120 شمعة)
+function vp(k, N = 120, B = 24) {
+  const s = k.slice(-N), hi = Math.max(...s.map(v => v.h)), lo = Math.min(...s.map(v => v.l)),
+    st = (hi - lo) / B || 1, bins = Array(B).fill(0);
+  s.forEach(v => {
+    const a = Math.max(0, Math.min(B - 1, Math.floor((v.l - lo) / st))),
+      b = Math.max(0, Math.min(B - 1, Math.floor((v.h - lo) / st)));
+    for (let i = a; i <= b; i++) bins[i] += v.v / (b - a + 1);
+  });
+  const poc = bins.indexOf(Math.max(...bins)), tot = bins.reduce((x, y) => x + y, 0),
+    ob = i => i >= 0 && i < B ? bins[i] : 0;
+  let acc = bins[poc], u = poc, d = poc;
+  while (acc < tot * .7 && (u < B - 1 || d > 0)) {
+    const up2 = ob(u + 1) + ob(u + 2), dn2 = ob(d - 1) + ob(d - 2);
+    if ((up2 >= dn2 && u < B - 1) || d <= 0) { acc += up2; u = Math.min(B - 1, u + 2); }
+    else { acc += dn2; d = Math.max(0, d - 2); }
+  }
+  return { poc: lo + (poc + .5) * st, vah: lo + (u + 1) * st, val: lo + d * st, bins, lo, st };
+}
+
+// Squeeze (TTM: BB داخل Keltner)
+function sqzInfo(k, n = 20) {
+  const L = k.length;
+  if (L < 2 * n + 5) return { w: 0, sq: false, exp: false, mom: 0 };
+  const c = k.map(v => v.c),
+    tr = k.map((v, i) => i ? Math.max(v.h - v.l, Math.abs(v.h - k[i - 1].c), Math.abs(v.l - k[i - 1].c)) : v.h - v.l),
+    sm = (a, i) => a.slice(i - n + 1, i + 1).reduce((x, y) => x + y, 0) / n,
+    sd = i => { const m = sm(c, i); return Math.sqrt(c.slice(i - n + 1, i + 1).reduce((x, y) => x + (y - m) ** 2, 0) / n); },
+    on = i => 2 * sd(i) < 1.5 * sm(tr, i),
+    val = i => { const w = k.slice(i - n + 1, i + 1); return c[i] - ((Math.max(...w.map(v => v.h)) + Math.min(...w.map(v => v.l))) / 2 + sm(c, i)) / 2; },
+    ys = [];
+  for (let i = L - n; i < L; i++) ys.push(val(i));
+  const mx = (n - 1) / 2, my = ys.reduce((a, b) => a + b, 0) / n;
+  let sxy = 0, sxx = 0;
+  ys.forEach((y, i) => { sxy += (i - mx) * (y - my); sxx += (i - mx) ** 2; });
+  const mom = my + (sxx ? sxy / sxx * (n - 1 - mx) : 0), now = on(L - 1), was = [1, 2, 3].some(j => on(L - 1 - j));
+  return { w: 4 * sd(L - 1) / sm(c, L - 1) * 100, sq: now, exp: !now && was && mom > 0, mom };
+}
+
+// CMF
+function cmf(k, n = 20) {
+  let a = 0, b = 0;
+  k.slice(-n).forEach(v => {
+    const r = v.h - v.l;
+    a += (r ? ((v.c - v.l) - (v.h - v.c)) / r : 0) * v.v;
+    b += v.v;
+  });
+  return b ? a / b : 0;
+}
+
+// OBV
+function obvS(k) {
+  let o = 0;
+  return k.map((v, i) => { if (i) o += v.c > k[i - 1].c ? v.v : v.c < k[i - 1].c ? -v.v : 0; return o; });
+}
+
+// ADX Wilder
+function adxS(k, n = 14) {
+  const L = k.length, r = Array(L).fill(null);
+  if (L < 2 * n + 2) return r;
+  const tr = [], pd = [], nd = [];
+  for (let i = 1; i < L; i++) {
+    const u = k[i].h - k[i - 1].h, d = k[i - 1].l - k[i].l;
+    pd.push(u > d && u > 0 ? u : 0);
+    nd.push(d > u && d > 0 ? d : 0);
+    tr.push(Math.max(k[i].h - k[i].l, Math.abs(k[i].h - k[i - 1].c), Math.abs(k[i].l - k[i - 1].c)));
+  }
+  let st = 0, sp = 0, sn = 0;
+  for (let i = 0; i < n; i++) { st += tr[i]; sp += pd[i]; sn += nd[i]; }
+  const dx = [];
+  let finalDI = [0, 0];
+  for (let i = n - 1; i < tr.length; i++) {
+    if (i > n - 1) { st = st - st / n + tr[i]; sp = sp - sp / n + pd[i]; sn = sn - sn / n + nd[i]; }
+    const a = 100 * sp / (st || 1), b = 100 * sn / (st || 1);
+    dx.push([i + 1, 100 * Math.abs(a - b) / ((a + b) || 1)]);
+    finalDI = [a, b];
+  }
+  let a = dx.slice(0, n).reduce((x, y) => x + y[1], 0) / n;
+  r[dx[n - 1][0]] = a;
+  for (let j = n; j < dx.length; j++) { a = (a * (n - 1) + dx[j][1]) / n; r[dx[j][0]] = a; }
+  r.di = finalDI;
+  return r;
+}
+
+// Divergence
+function divs(k, osc, tol, lb = 5, lo = 5, up = 60) {
+  const out = [];
+  const pr = (arr, hi) => {
+    for (let j = 1; j < arr.length; j++) {
+      const i1 = arr[j - 1], i2 = arr[j], g = i2 - i1;
+      if (g < lo || g > up) continue;
+      const p1 = hi ? k[i1].h : k[i1].l, p2 = hi ? k[i2].h : k[i2].l;
+      const o1 = osc[i1], o2 = osc[i2];
+      if (o1 == null || o2 == null) continue;
+      const eq = Math.abs(p2 - p1) <= tol;
+      let t = null;
+      if (!hi) {
+        if (eq && o2 > o1) t = 'eb';
+        else if (!eq && p2 < p1 && o2 > o1) t = 'rb';
+        else if (!eq && p2 > p1 && o2 < o1) t = 'hb';
+      } else {
+        if (eq && o2 < o1) t = 'es';
+        else if (!eq && p2 > p1 && o2 < o1) t = 'rs';
+        else if (!eq && p2 < p1 && o2 > o1) t = 'hs';
+      }
+      if (t) out.push({ type: t, dir: hi ? 'bear' : 'bull', i1, i2, p1, p2, r1: o1, r2: o2 });
+    }
+  };
+  pr(pivL(osc, lb, lb), 0);
+  pr(pivH(osc, lb, lb), 1);
+  return out.sort((a, b) => a.i2 - b.i2);
+}
+
+// ===== كشف النماذج (15m) =====
+function patterns15(k, at) {
+  const Z = zz(k), L = k.length, out = [], ptr = i => (k[i].c - k[Math.max(0, i - 30)].c) / at;
+  const pushGeneric = (p, maxAge) => {
+    if (p.pts.some(q => L - 1 - q[0] > maxAge)) return;
+    const one = p.up && !p.dn ? 'up' : p.dn && !p.up ? 'dn' : null;
+    if (one) {
+      const st = (p.up || p.dn).stop;
+      for (let j = p.i1 + 1; j < L; j++) {
+        const c = k[j].c;
+        if (one == 'up' ? c < st : c > st) return;
+      }
+    }
+    let bj = -1, bd = null;
+    for (let j = p.i1 + 1; j < L && bj < 0; j++) {
+      const c = k[j].c, tu = p.up ? (p.up.line ? p.up.line(j) : p.up.trig) : null, td = p.dn ? (p.dn.line ? p.dn.line(j) : p.dn.trig) : null;
+      if (tu != null && c > tu) { bj = j; bd = 'up'; }
+      else if (td != null && c < td) { bj = j; bd = 'dn'; }
+    }
+    p.brk = bd;
+    p.brkAge = bj >= 0 ? (L - 1 - bj) : null;
+    p.status = bj < 0 ? 'قيد التشكل' : `اختراق ${bd == 'up' ? 'صاعد' : 'هابط'} (قبل ${L - 1 - bj} شمعة)`;
+    out.push(p);
+  };
+
+  // Double Top/Bottom — 15m: نافذة أصغر
+  const RECENT_DOUBLE = 60, MAX_AGE_DOUBLE = 30;
+  const Zd = Z.filter(q => q.i >= L - RECENT_DOUBLE);
+  for (let o = 0; o < 3; o++) {
+    const z = Zd.slice(Math.max(0, Zd.length - 3 - o), Zd.length - o);
+    if (z.length < 3) continue;
+    const [a, b, c] = z, pts = z.map(q => [q.i, q.p]);
+    if (a.t == 'H' && Math.abs(a.p - c.p) <= .015 * (a.p + c.p) / 2 && Math.min(a.p, c.p) - b.p >= 2 * at && c.i - a.i >= 10 && ptr(a.i) >= 3) {
+      const top = Math.max(a.p, c.p), h = top - b.p;
+      pushGeneric({ name: 'القمة المزدوجة', kind: 'انعكاسي', dir: 'هابط', i1: c.i, U: top, D: b.p, h, dn: { trig: b.p, stop: top, tgt: b.p - h }, pts, lines: [{ a: [a.i, b.p], b: [L - 1, b.p], c: '#ef4444' }, { a: [a.i, top], b: [c.i, top], c: '#f59e0b' }], nph: 2, npl: 1 }, MAX_AGE_DOUBLE);
+    }
+    if (a.t == 'L' && Math.abs(a.p - c.p) <= .015 * (a.p + c.p) / 2 && b.p - Math.max(a.p, c.p) >= 2 * at && c.i - a.i >= 10 && ptr(a.i) <= -3) {
+      const bot = Math.min(a.p, c.p), h = b.p - bot;
+      pushGeneric({ name: 'القاع المزدوج', kind: 'انعكاسي', dir: 'صاعد', i1: c.i, U: b.p, D: bot, h, up: { trig: b.p, stop: bot, tgt: b.p + h }, pts, lines: [{ a: [a.i, b.p], b: [L - 1, b.p], c: '#22c55e' }, { a: [a.i, bot], b: [c.i, bot], c: '#f59e0b' }], nph: 1, npl: 2 }, MAX_AGE_DOUBLE);
+    }
+  }
+
+  // H&S
+  const RECENT_HNS = 80, MAX_AGE_HNS = 45;
+  const Zh = Z.filter(q => q.i >= L - RECENT_HNS);
+  for (let o = 0; o < 3; o++) {
+    const z = Zh.slice(Math.max(0, Zh.length - 5 - o), Zh.length - o);
+    if (z.length < 5) continue;
+    const [s1, n1, hd, n2, s2] = z;
+    if (n2.i === n1.i) continue;
+    const nk = x => n1.p + (n2.p - n1.p) / (n2.i - n1.i) * (x - n1.i);
+    const pts = z.map(q => [q.i, q.p]);
+    if (s1.t == 'H') {
+      const h = hd.p - nk(hd.i);
+      if (hd.p > s1.p && hd.p > s2.p && Math.abs(s1.p - s2.p) <= .015 * (s1.p + s2.p) / 2 && h >= 2 * at && ptr(s1.i) >= 3) {
+        pushGeneric({ name: 'الرأس والكتفين', kind: 'انعكاسي', dir: 'هابط', i1: s2.i, U: hd.p, D: nk(L - 1), h, dn: { trig: nk(L - 1), line: nk, stop: s2.p, tgt: nk(L - 1) - h }, pts, lines: [{ a: [n1.i, n1.p], b: [L - 1, nk(L - 1)], c: '#ef4444' }], nph: 3, npl: 2 }, MAX_AGE_HNS);
+      }
+    } else {
+      const h = nk(hd.i) - hd.p;
+      if (hd.p < s1.p && hd.p < s2.p && Math.abs(s1.p - s2.p) <= .015 * (s1.p + s2.p) / 2 && h >= 2 * at && ptr(s1.i) <= -3) {
+        pushGeneric({ name: 'الرأس والكتفين المعكوس', kind: 'انعكاسي', dir: 'صاعد', i1: s2.i, U: nk(L - 1), D: hd.p, h, up: { trig: nk(L - 1), line: nk, stop: s2.p, tgt: nk(L - 1) + h }, pts, lines: [{ a: [n1.i, n1.p], b: [L - 1, nk(L - 1)], c: '#22c55e' }], nph: 2, npl: 3 }, MAX_AGE_HNS);
+      }
+    }
+  }
+
+  // Triangles
+  const RECENT_TRIANGLE = 100, MAX_AGE_TRIANGLE = 60;
+  const Zt = Z.filter(q => q.i >= L - RECENT_TRIANGLE);
+  const win = Zt.slice(-8);
+  const PH = win.filter(q => q.t == 'H').slice(-4), PL = win.filter(q => q.t == 'L').slice(-4);
+  if (PH.length >= 2 && PL.length >= 2) {
+    const fh = fit(PH), fl = fit(PL),
+      xs = Math.min(PH[0].i, PL[0].i), xe = L - 1,
+      Uf = x => fh.m * x + fh.c, Df = x => fl.m * x + fl.c,
+      ws = Uf(xs) - Df(xs), Ue = Uf(xe), De = Df(xe), we = Ue - De,
+      res2 = Math.max(...PH.map(q => Math.abs(q.p - Uf(q.i))), ...PL.map(q => Math.abs(q.p - Df(q.i))));
+    if (ws > 2 * at && we > 0 && res2 <= .75 * at) {
+      const cU = (Ue - Uf(xs)) / ws, cD = (De - Df(xs)) / ws,
+        conv = we <= .75 * ws, par = we >= .85 * ws && we <= 1.15 * ws,
+        fU = Math.abs(cU) <= .15, fD = Math.abs(cD) <= .15,
+        uU = cU > .15, dU = cU < -.15, uD = cD > .15, dD = cD < -.15,
+        tr = (k[xs].c - k[Math.max(0, xs - 30)].c) / at,
+        base = { U: Ue, D: De, h: ws, i1: Math.max(PH[PH.length - 1].i, PL[PL.length - 1].i), nph: PH.length, npl: PL.length, pts: [...PH, ...PL].map(q => [q.i, q.p]), lines: [{ a: [xs, Uf(xs)], b: [xe, Ue], c: '#f59e0b' }, { a: [xs, Df(xs)], b: [xe, De], c: '#f59e0b' }] },
+        UP = (tgt, stop) => ({ trig: Ue, stop, tgt }), DN = (tgt, stop) => ({ trig: De, stop, tgt }),
+        both = (nm, dr) => pushGeneric({ ...base, name: nm, kind: 'ثنائي', dir: dr, up: UP(Ue + ws, De), dn: DN(De - ws, Ue) }, MAX_AGE_TRIANGLE);
+      if (fU && uD && conv) both('المثلث الصاعد', 'صاعد');
+      else if (dU && fD && conv) both('المثلث الهابط', 'هابط');
+      else if (dU && uD && conv) both('المثلث المتماثل', 'ثنائي');
+    }
+  }
+  return out.sort((a, b) => b.i1 - a.i1).slice(0, 4);
+}
+
+// ===== الخطة (15m) =====
+function plan15(sym, k, price) {
+  const at = atr(k), lv = levels(k), gaps = fvgs(k);
+  const pats = patterns15(k, at);
+  const m = pats[0] || null;
+  const r30 = k.slice(-30);
+  let name = m ? m.name : 'لا يوجد نموذج مكتمل';
+  let bias = m ? (m.dir == 'ثنائي' ? 'محايد' : m.dir) : 'محايد';
+  let state = m ? m.status : '—';
+  let U = m ? m.U : Math.max(...r30.map(v => v.h));
+  let D = m ? m.D : Math.min(...r30.map(v => v.l));
+  let hh = m ? m.h : U - D;
+  const plans = [];
+
+  const addPlan = (p, side, entry) => {
+    const target = p.tp2 != null ? p.tp2 : p.tp1;
+    if (target == null) return;
+    const risk = side === 'long' ? entry - p.sl : p.sl - entry;
+    const reward = side === 'long' ? target - entry : entry - target;
+    if (!(Number.isFinite(risk) && Number.isFinite(reward) && risk > 0 && reward > 0)) return;
+    p.rr = reward / risk;
+    plans.push(p);
+  };
+
+  if (m) {
+    let isLong = false, isShort = false;
+    if (m.brk === 'up' && m.up) isLong = true;
+    else if (m.brk === 'dn' && m.dn) isShort = true;
+    else if (m.dir === 'صاعد' && m.up) isLong = true;
+    else if (m.dir === 'هابط' && m.dn) isShort = true;
+    else if (m.dir === 'ثنائي') { if (m.up) isLong = true; if (m.dn) isShort = true; }
+
+    if (isLong) {
+      const o = m.up, trig = o.trig, brkAge = m.brkAge;
+      if (m.brk === 'up') {
+        if (price > trig + 1.0 * at) {
+          plans.push({ t: `⚠ اختراق سابق (قبل ${brkAge ?? '?'} شمعة) — السعر ابتعد`, z: null, sl: o.stop, tp1: null, tp2: o.tgt, rr: 0, status: 'chase', statusLabel: 'لا تطارد', note: `السعر فوق ${fmt(trig)} بـ ${((price - trig) / trig * 100).toFixed(2)}%.` });
+        } else if (price >= trig - 0.3 * at) {
+          const risk = price - o.stop;
+          plans.push({ t: `إعادة اختبار خط العنق بعد اختراق`, z: [trig * 0.998, trig + 0.15 * at], sl: o.stop, tp1: price + 1.0 * risk, tp2: o.tgt, rr: (o.tgt - price) / Math.max(risk, 1e-9), status: 'direct', statusLabel: 'دخول مباشر', note: `الوقف تحت ${fmt(o.stop)}.` });
+        } else if (price >= trig - 1.0 * at) {
+          const risk = price - o.stop;
+          plans.push({ t: `إعادة اختبار محتملة`, z: [trig - 0.15 * at, trig + 0.15 * at], sl: o.stop, tp1: price + 1.0 * risk, tp2: o.tgt, rr: (o.tgt - price) / Math.max(risk, 1e-9), status: 'wait', statusLabel: 'راقب', note: `السعر قريب من خط العنق.` });
+        } else {
+          plans.push({ t: `⚠ اختراق فاشل`, z: null, sl: o.stop, tp1: null, tp2: null, rr: 0, status: 'chase', statusLabel: 'لا تطارد', note: `السعر عاد تحت ${fmt(trig)}.` });
+        }
+      } else {
+        const z1 = trig + 0.3 * at, en = (trig + z1) / 2, risk = en - o.stop;
+        plans.push({ t: `انتظار إغلاق فوق ${fmt(trig)}`, z: [trig, z1], sl: o.stop, tp1: en + risk, tp2: o.tgt, rr: (o.tgt - en) / Math.max(risk, 1e-9), status: 'wait', statusLabel: 'انتظار', note: `السعر أقل من خط العنق.` });
+      }
+    }
+
+    if (isShort) {
+      const o = m.dn, trig = o.trig, brkAge = m.brkAge;
+      if (m.brk === 'dn') {
+        if (price < trig - 1.0 * at) {
+          plans.push({ t: `⚠ كسر سابق — السعر ابتعد`, z: null, sl: o.stop, tp1: null, tp2: o.tgt, rr: 0, status: 'chase', statusLabel: 'لا تطارد', note: `السعر تحت ${fmt(trig)} بـ ${((trig - price) / trig * 100).toFixed(2)}%.` });
+        } else if (price <= trig + 0.3 * at) {
+          const risk = o.stop - price;
+          plans.push({ t: `إعادة اختبار خط العنق بعد كسر`, z: [trig - 0.15 * at, trig * 1.002], sl: o.stop, tp1: price - 1.0 * risk, tp2: o.tgt, rr: (price - o.tgt) / Math.max(risk, 1e-9), status: 'direct', statusLabel: 'دخول مباشر', note: `الوقف فوق ${fmt(o.stop)}.` });
+        } else if (price <= trig + 1.0 * at) {
+          const risk = o.stop - price;
+          plans.push({ t: `إعادة اختبار محتملة`, z: [trig - 0.15 * at, trig + 0.15 * at], sl: o.stop, tp1: price - 1.0 * risk, tp2: o.tgt, rr: (price - o.tgt) / Math.max(risk, 1e-9), status: 'wait', statusLabel: 'راقب', note: `السعر قريب من خط العنق.` });
+        } else {
+          plans.push({ t: `⚠ كسر فاشل`, z: null, sl: o.stop, tp1: null, tp2: null, rr: 0, status: 'chase', statusLabel: 'لا تطارد', note: `السعر عاد فوق ${fmt(trig)}.` });
+        }
+      } else {
+        const z1 = trig - 0.3 * at, en = (trig + z1) / 2, risk = o.stop - en;
+        plans.push({ t: `انتظار إغلاق تحت ${fmt(trig)}`, z: [z1, trig], sl: o.stop, tp1: en - risk, tp2: o.tgt, rr: (en - o.tgt) / Math.max(risk, 1e-9), status: 'wait', statusLabel: 'انتظار', note: `السعر أعلى من خط العنق.` });
+      }
+    }
+  }
+
+  plans.forEach(p => {
+    if (p.z && p.sl != null && p.tp2 != null) {
+      const en = (p.z[0] + p.z[1]) / 2, risk = Math.abs(en - p.sl);
+      if (risk > 0) { p.rr = Math.abs(p.tp2 - en) / risk; p.tp1 = (en + p.tp2) / 2; }
+    }
+  });
+
+  if (!plans.length) {
+    plans.push({ t: 'لا توجد خطة دخول واضحة', z: null, sl: null, tp1: null, tp2: null, rr: 0, status: 'none', statusLabel: 'لا خطة', note: 'لم يُكتشف نموذج سعري مكتمل.' });
+  }
+
+  return { sym, price, k, lv, gaps, pats, name, bias, state, U, D, at, hh, plans, nph: m ? m.nph : 0, npl: m ? m.npl : 0 };
+}
+
+// ===== المتغيرات العامة =====
+let CH = null, curSym = null, timer = null;
+
+// ===== الرسم البياني =====
+function draw(a) {
+  CH = a;
+  const cv = $('cv'), x = cv.getContext('2d'),
+    dpr = (typeof devicePixelRatio == 'number' ? devicePixelRatio : 1),
+    W = cv.clientWidth, H = cv.clientHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  x.setTransform(dpr, 0, 0, dpr, 0, 0);
+  x.clearRect(0, 0, W, H);
+  const Ls = a.k, Z = Ls.length,
+    N = Math.min(120, Z), s0 = Z - N, e = Z,
+    I = a.ind,
+    PL = 8, PR = 66, top = 20, cw = (W - PL - PR) / N,
+    X = i => PL + (i - s0) * cw + cw / 2,
+    bw = Math.max(1, cw * .68);
+  const gp = 6, tot = H - top - 24 - 3 * gp,
+    hs = [.55, .12, .15, .18].map(f => f * tot),
+    ys = [top];
+  for (let i = 1; i < 4; i++) ys.push(ys[i - 1] + hs[i - 1] + gp);
+  const vis = Ls.slice(s0, e),
+    h0 = Math.max(...vis.map(v => v.h)),
+    l0 = Math.min(...vis.map(v => v.l)),
+    pd = (h0 - l0) * .07 || h0 * .01, hi = h0 + pd, lo = l0 - pd,
+    Y = p => ys[0] + (hi - p) / (hi - lo) * hs[0],
+    P = a.price, vf = v => v.v != null ? v.v : v.q;
+  x.font = '11px system-ui,Segoe UI,Tahoma,sans-serif';
+  x.textBaseline = 'middle';
+  ys.forEach((y, i) => {
+    x.fillStyle = '#0e1320'; x.fillRect(PL, y, W - PL - PR, hs[i]);
+    x.strokeStyle = '#1c2437'; x.lineWidth = 1;
+    x.strokeRect(PL + .5, y + .5, W - PL - PR - 1, hs[i] - 1);
+  });
+  x.textAlign = 'left'; x.fillStyle = '#8791a7';
+  for (let i = 0; i <= 5; i++) {
+    const p = lo + (hi - lo) * i / 5, y = Y(p);
+    x.strokeStyle = '#18202f'; x.beginPath(); x.moveTo(PL, y); x.lineTo(W - PR, y); x.stroke();
+    x.fillText(fmt(p), W - PR + 4, y);
+  }
+  const stp = Math.ceil(N / 8);
+  for (let i = s0; i < e; i += stp) {
+    const d = new Date(Ls[i].t), xx = X(i);
+    x.strokeStyle = '#161d2c'; x.beginPath(); x.moveTo(xx, ys[0]); x.lineTo(xx, ys[3] + hs[3]); x.stroke();
+    x.fillStyle = '#8791a7'; x.textAlign = 'center';
+    x.fillText(`${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`, xx, H - 10);
+  }
+  const tags = [],
+    tag = (p, c, t) => { if (typeof p == 'number' && isFinite(p)) tags.push([p, c, t]); },
+    ln = (p, c, w, dash) => {
+      if (typeof p != 'number' || p < lo || p > hi) return;
+      x.strokeStyle = c; x.lineWidth = w || 1; x.setLineDash(dash || []);
+      x.beginPath(); x.moveTo(PL, Y(p)); x.lineTo(W - PR, Y(p)); x.stroke();
+      x.setLineDash([]);
+    },
+    poly = (arr, c, w) => {
+      x.strokeStyle = c; x.lineWidth = w; x.setLineDash([]);
+      x.beginPath();
+      let go = 0;
+      for (let i = s0; i < e; i++) {
+        const v = arr[i];
+        if (v == null || v < lo || v > hi) { go = 0; continue; }
+        go ? x.lineTo(X(i), Y(v)) : x.moveTo(X(i), Y(v));
+        go = 1;
+      }
+      x.stroke();
+    };
+  x.save();
+  x.beginPath(); x.rect(PL, ys[0], W - PL - PR, hs[0]); x.clip();
+
+  // Volume Profile
+  const V = a.x.vp;
+  if (V) {
+    const mx = Math.max(...V.bins), ww = (W - PL - PR) * .14;
+    V.bins.forEach((b, i) => {
+      const p0 = V.lo + i * V.st, p1 = p0 + V.st, inVA = p1 > V.val && p0 < V.vah;
+      x.fillStyle = inVA ? '#e879f940' : '#64748b30';
+      x.fillRect(PL, Y(p1), b / mx * ww, Math.max(1, Y(p0) - Y(p1) - 1));
+    });
+    ln(V.poc, '#e879f9', 1.2);
+    ln(V.vah, '#64748b', 1, [3, 4]);
+    ln(V.val, '#64748b', 1, [3, 4]);
+    tag(V.poc, '#e879f9', 'POC');
+    tag(V.vah, '#64748b', 'VAH');
+    tag(V.val, '#64748b', 'VAL');
+  }
+  // Bollinger
+  const b = I.bb, idx = [];
+  for (let i = s0; i < e; i++) if (b[i]) idx.push(i);
+  if (idx.length) {
+    x.fillStyle = '#64748b22'; x.beginPath();
+    idx.forEach((i, j) => j ? x.lineTo(X(i), Y(b[i].u)) : x.moveTo(X(i), Y(b[i].u)));
+    for (let j = idx.length - 1; j >= 0; j--) x.lineTo(X(idx[j]), Y(b[idx[j]].l));
+    x.fill();
+    [['u', '#94a3b8'], ['l', '#94a3b8'], ['m', '#64748b']].forEach(([q, c]) => poly(b.map(o => o && o[q]), c, 1));
+  }
+  // S/R
+  a.lv.filter(l => Math.abs(l.p / P - 1) < .15 && (l.n >= 2 || Math.abs(l.p / P - 1) < .03))
+    .sort((u, v) => Math.abs(u.p - P) - Math.abs(v.p - P))
+    .slice(0, 6)
+    .forEach(l => {
+      const c = l.p < P ? '#22c55e' : '#ef4444';
+      ln(l.p, c, l.n > 1 ? 1.6 : 1, [6, 4]);
+      tag(l.p, c, (l.p < P ? 'S' : 'R') + (l.n > 1 ? l.n : ''));
+    });
+  // FVG
+  a.gaps.filter(g => g.hi > lo && g.lo < hi)
+    .sort((u, v) => Math.abs((u.lo + u.hi) / 2 - P) - Math.abs((v.lo + v.hi) / 2 - P))
+    .slice(0, 4)
+    .forEach(g => {
+      const x0 = Math.max(PL, X(g.i - 2));
+      x.fillStyle = g.t == 'bull' ? '#22c55e22' : '#ef444422';
+      x.fillRect(x0, Y(g.hi), W - PR - x0, Math.max(2, Y(g.lo) - Y(g.hi)));
+      x.fillStyle = g.t == 'bull' ? '#22c55e' : '#ef4444';
+      x.textAlign = 'left';
+      x.fillText('FVG', x0 + 3, Y(g.hi) + 7);
+    });
+  // Sweep
+  const q = a.x.sw;
+  if (q) {
+    const x0 = Math.max(PL, X(q.j - 2));
+    x.fillStyle = q.dir === 'bear' ? '#f8717130' : '#22d3ee30';
+    x.fillRect(x0, Y(q.z[1]), W - PR - x0, Math.max(2, Y(q.z[0]) - Y(q.z[1])));
+    x.strokeStyle = x.fillStyle = q.dir === 'bear' ? '#f87171' : '#22d3ee';
+    x.lineWidth = 2;
+    x.beginPath(); x.arc(X(q.i), Y(q.low), 8, 0, 7); x.stroke();
+    x.textAlign = 'center';
+    x.fillText('SWEEP', X(q.i), Y(q.low) + (q.dir === 'bear' ? -20 : 20));
+    tag(q.ce, q.dir === 'bear' ? '#f87171' : '#22d3ee', 'ENTRY');
+    tag(q.stop, '#ef4444', 'SL*');
+  }
+  // Patterns
+  (a.pats || []).slice(0, 2).forEach((m, j) => {
+    x.setLineDash([]);
+    (m.lines || []).forEach(l => {
+      x.strokeStyle = l.c || '#f59e0b'; x.lineWidth = 1.6;
+      x.beginPath(); x.moveTo(X(l.a[0]), Y(l.a[1])); x.lineTo(X(l.b[0]), Y(l.b[1])); x.stroke();
+    });
+    (m.pts || []).forEach(q => {
+      x.fillStyle = '#f59e0b';
+      x.beginPath(); x.arc(X(q[0]), Y(q[1]), 3, 0, 7); x.fill();
+    });
+    x.fillStyle = '#f59e0b'; x.textAlign = 'left';
+    x.fillText('▸ ' + m.name + ' · ' + m.status, PL + 6, ys[0] + 12 + j * 14);
+  });
+  // Divergence
+  (a.x.dvs || []).filter(d => d.i2 >= s0 && d.i1 < e).forEach(d => {
+    const c = DVC[d.type];
+    x.strokeStyle = c; x.lineWidth = d.type[0] == 'r' ? 2 : 1.4;
+    x.setLineDash(d.type[0] == 'r' ? [] : [5, 4]);
+    x.beginPath(); x.moveTo(X(d.i1), Y(d.p1)); x.lineTo(X(d.i2), Y(d.p2)); x.stroke();
+    x.setLineDash([]);
+    x.fillStyle = c; x.textAlign = 'center';
+    x.fillText(DVN[d.type][0], X(d.i2), Y(d.p2) + (d.dir == 'bull' ? 14 : -14));
+  });
+  // Plans
+  a.plans.forEach((p, j) => {
+    if (p.z && p.z[1] > lo && p.z[0] < hi) {
+      x.fillStyle = '#4f8cff22';
+      x.fillRect(PL, Y(p.z[1]), W - PL - PR, Math.max(2, Y(p.z[0]) - Y(p.z[1])));
+    }
+    if (p.sl) ln(p.sl, '#ef4444', 1, [2, 3]);
+    if (p.tp1) ln(p.tp1, '#22c55e', 1, [2, 3]);
+    if (p.tp2) ln(p.tp2, '#16a34a', 1, [2, 3]);
+    if (p.z) tag((p.z[0] + p.z[1]) / 2, '#4f8cff', 'E' + (j + 1));
+    if (p.sl) tag(p.sl, '#ef4444', 'SL' + (j + 1));
+    if (p.tp1) tag(p.tp1, '#22c55e', 'TP1·' + (j + 1));
+    if (p.tp2) tag(p.tp2, '#16a34a', 'TP2·' + (j + 1));
+  });
+  // EMA
+  poly(I.e20, '#facc15', 1.2);
+  poly(I.e50, '#38bdf8', 1.2);
+  poly(I.e200, '#a855f7', 2);
+  tag(I.e200[e - 1], '#a855f7', 'EMA200');
+  // Candles
+  for (let i = s0; i < e; i++) {
+    const v = Ls[i], c = v.c >= v.o ? '#22c55e' : '#ef4444', xx = X(i),
+      yo = Y(v.o), yc = Y(v.c);
+    x.strokeStyle = x.fillStyle = c; x.lineWidth = 1;
+    x.beginPath(); x.moveTo(xx, Y(v.h)); x.lineTo(xx, Y(v.l)); x.stroke();
+    x.fillRect(xx - bw / 2, Math.min(yo, yc), bw, Math.max(1, Math.abs(yo - yc)));
+  }
+  ln(P, '#4f8cff', 1, [1, 3]);
+  tag(P, '#4f8cff', fmt(P));
+  x.restore();
+  // Tags
+  tags.map(t => ({
+    y: t[0] > hi ? ys[0] + 9 : t[0] < lo ? ys[0] + hs[0] - 9 : Y(t[0]),
+    c: t[1], t: t[2] + (t[0] > hi ? '▲' : t[0] < lo ? '▼' : '')
+  })).sort((u, v) => u.y - v.y).forEach((t, i, ar) => {
+    if (i && t.y - ar[i - 1].y < 14) t.y = ar[i - 1].y + 14;
+    x.fillStyle = t.c;
+    x.fillRect(W - PR + 1, t.y - 7, PR - 3, 14);
+    x.fillStyle = '#0b0e14'; x.textAlign = 'left';
+    x.fillText(t.t.slice(0, 9), W - PR + 4, t.y);
+  });
+  // Volume
+  const vm = Math.max(...vis.map(vf)) || 1;
+  for (let i = s0; i < e; i++) {
+    const v = Ls[i], h = vf(v) / vm * (hs[1] - 4);
+    x.fillStyle = v.c >= v.o ? '#22c55e88' : '#ef444488';
+    x.fillRect(X(i) - bw / 2, ys[1] + hs[1] - h, bw, h);
+  }
+  // RSI
+  const Yr = r => ys[2] + (100 - r) / 100 * hs[2];
+  [30, 50, 70].forEach(r => {
+    x.strokeStyle = r == 50 ? '#18202f' : '#2a3550';
+    x.setLineDash(r == 50 ? [] : [4, 4]);
+    x.beginPath(); x.moveTo(PL, Yr(r)); x.lineTo(W - PR, Yr(r)); x.stroke();
+    x.setLineDash([]);
+    x.fillStyle = '#8791a7'; x.textAlign = 'left';
+    x.fillText(r, W - PR + 4, Yr(r));
+  });
+  x.strokeStyle = '#a78bfa'; x.lineWidth = 1.5;
+  x.beginPath();
+  let g1 = 0;
+  for (let i = s0; i < e; i++) {
+    const r = I.rsi[i];
+    if (r == null) { g1 = 0; continue; }
+    g1 ? x.lineTo(X(i), Yr(r)) : x.moveTo(X(i), Yr(r));
+    g1 = 1;
+  }
+  x.stroke();
+  (a.x.dvs || []).filter(d => d.i2 >= s0 && d.i1 < e).forEach(d => {
+    x.strokeStyle = DVC[d.type]; x.lineWidth = 2;
+    x.setLineDash(d.type[0] == 'r' ? [] : [5, 4]);
+    x.beginPath(); x.moveTo(X(d.i1), Yr(d.r1)); x.lineTo(X(d.i2), Yr(d.r2)); x.stroke();
+    x.setLineDash([]);
+  });
+  const rl = I.rsi[e - 1];
+  if (rl != null) {
+    x.fillStyle = '#a78bfa';
+    x.fillRect(W - PR + 1, Yr(rl) - 7, PR - 3, 14);
+    x.fillStyle = '#0b0e14';
+    x.fillText(rl.toFixed(1), W - PR + 4, Yr(rl));
+  }
+  // MACD
+  const mv = [];
+  for (let i = s0; i < e; i++) [I.m[i], I.g[i], I.h[i]].forEach(v => v != null && mv.push(Math.abs(v)));
+  const mm = Math.max(...mv, 1e-12) * 1.15, Ym = v => ys[3] + hs[3] / 2 - v / mm * (hs[3] / 2 - 3);
+  x.strokeStyle = '#2a3550'; x.beginPath(); x.moveTo(PL, Ym(0)); x.lineTo(W - PR, Ym(0)); x.stroke();
+  for (let i = s0; i < e; i++) {
+    const h = I.h[i];
+    if (h == null) continue;
+    const pv = I.h[i - 1];
+    x.fillStyle = h >= 0 ? (pv != null && h < pv ? '#22c55e66' : '#22c55ecc') : (pv != null && h > pv ? '#ef444466' : '#ef4444cc');
+    x.fillRect(X(i) - bw / 2, Math.min(Ym(0), Ym(h)), bw, Math.max(1, Math.abs(Ym(h) - Ym(0))));
+  }
+  [[I.m, '#38bdf8'], [I.g, '#f59e0b']].forEach(([arr, c]) => {
+    x.strokeStyle = c; x.lineWidth = 1.3;
+    x.beginPath();
+    let gg = 0;
+    for (let i = s0; i < e; i++) {
+      const v = arr[i];
+      if (v == null) { gg = 0; continue; }
+      gg ? x.lineTo(X(i), Ym(v)) : x.moveTo(X(i), Ym(v));
+      gg = 1;
+    }
+    x.stroke();
+  });
+  x.fillStyle = '#8791a7'; x.textAlign = 'left';
+  x.fillText('Vol', PL + 4, ys[1] + 8);
+  x.fillText('RSI(14)', PL + 4, ys[2] + 8);
+  x.fillText('MACD(12,26,9)', PL + 4, ys[3] + 8);
+}
+
+const DVC = { rb: '#22c55e', hb: '#38bdf8', eb: '#a78bfa', rs: '#ef4444', hs: '#f97316', es: '#f472b6' };
+const DVN = { rb: ['R↑', 'تباعد صاعد عادي'], hb: ['H↑', 'تباعد صاعد خفي'], eb: ['E↑', 'تباعد صاعد مبالغ فيه'], rs: ['R↓', 'تباعد هابط عادي'], hs: ['H↓', 'تباعد هابط خفي'], es: ['E↓', 'تباعد هابط مبالغ فيه'] };
+
+// ===== الطلب الرئيسي =====
+async function load(sym) {
+  sym = sym.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!sym.endsWith('USDT')) sym += 'USDT';
+  curSym = sym;
+  $('st').textContent = 'جارٍ تحميل ' + sym + '...';
+  try {
+    const [kl, tk] = await Promise.all([
+      api(`/api/v3/klines?symbol=${sym}&interval=15m&limit=500`),
+      api(`/api/v3/ticker/24hr?symbol=${sym}`)
+    ]);
+    const L = kl.map(x => ({ t: +x[0], o: +x[1], h: +x[2], l: +x[3], c: +x[4], v: +x[5], q: +x[7], tb: +x[10] }));
+    if (L.length < 100) throw new Error('بيانات غير كافية');
+    const k = L.slice(0, -1);   // آخر شمعة مغلقة فقط
+    const price = +tk.lastPrice;
+    const a = plan15(sym, k, price);
+
+    // المؤشرات
+    const cs = k.map(v => v.c), mc = macdS(cs), e = v => v[v.length - 1];
+    a.ind = { rsi: rsiS(cs), m: mc.m, g: mc.g, h: mc.h, e20: emaS(cs, 20), e50: emaS(cs, 50), e200: emaS(cs, 200), bb: bbArr(cs) };
+    a.live = { rsi: e(a.ind.rsi), e20: e(a.ind.e20), e50: e(a.ind.e50), e200: e(a.ind.e200) };
+    a.L = L;
+    a.x = {
+      n: cs.length,
+      macd: { above0: mc.m[cs.length - 1] > 0 },
+      dvs: divs(k, a.ind.rsi, .25 * atr(k)),
+      rsi: a.live.rsi,
+      vp: vp(k),
+      sw: sweepFvg(k)
+    };
+    a.tk = tk;
+
+    render(a);
+    $('st').textContent = 'آخر تحديث ' + new Date().toLocaleTimeString('ar-EG');
+  } catch (e) {
+    $('st').textContent = '❌ فشل: ' + (e.message || e);
+    $('content').innerHTML = `<div class="card" style="text-align:center;padding:40px">
+      <div class="dn" style="font-size:16px">تعذّر تحميل ${sym}</div>
+      <div class="mut" style="margin-top:8px">تأكد أن الزوج موجود على Binance Spot (USDT)</div>
+    </div>`;
+    $('cv').style.display = 'none';
+    $('indicators').style.display = 'none';
+    $('patterns').style.display = 'none';
+    $('plan').style.display = 'none';
+  }
+}
+
+// ===== العرض =====
+function render(a) {
+  const tk = a.tk, P = a.price, k = a.k,
+    ch24 = +tk.priceChangePercent, vol2 = +tk.quoteVolume,
+    buy = k[k.length - 1].q ? k[k.length - 1].tb / k[k.length - 1].q : 0.5,
+    R = a.live.rsi, e200 = a.live.e200;
+
+  // Header
+  let status = 'NONE', statusLabel = 'لا إشارة';
+  const last = k[k.length - 1], base = k.slice(-21, -1);
+  const rv = last.q / (base.reduce((s, v) => s + v.q, 0) / base.length);
+  const mom = (k[k.length - 1].c / k[k.length - 1].o - 1) * 100;
+  if (rv >= 1.5 && mom > 0.1 && buy >= .55) { status = 'READY'; statusLabel = 'READY'; }
+  if (rv >= 2 && mom > 0.3 && buy >= .6) { status = 'LAUNCHED'; statusLabel = 'LAUNCHED'; }
+  else if (rv >= 1.2 && Math.abs(mom) < 0.5) { status = 'WATCH'; statusLabel = 'مراقبة'; }
+
+  $('content').innerHTML = `
+    <div class="card">
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+        <b style="font-size:20px">${a.sym.replace('USDT', '')}/USDT</b>
+        <b style="font-size:18px">${fmt(P)}</b>
+        <b class="${ch24 >= 0 ? 'up' : 'dn'}">${pcs(ch24)}</b>
+        <span class="badge ${status}">${statusLabel}</span>
+        <a href="https://www.binance.com/en/trade/${a.sym.replace('USDT', '')}_USDT" target="_blank" rel="noopener" style="color:var(--b)">بينانس ↗</a>
+      </div>
+      <div class="tiles">
+        ${T('أعلى 24س', fmt(+tk.highPrice))}
+        ${T('أدنى 24س', fmt(+tk.lowPrice))}
+        ${T('حجم 24س', M(vol2) + '$')}
+        ${T('زخم الحجم', '×' + rv.toFixed(1), rv >= 1.5 ? 'up' : rv < 0.7 ? 'dn' : '')}
+        ${T('ضغط الشراء', (buy * 100).toFixed(0) + '%', buy >= .55 ? 'up' : '')}
+        ${T('آخر شمعة 15m', pcs(mom), mom >= 0 ? 'up' : 'dn')}
+        ${T('RSI 15m', R.toFixed(1), R >= 70 ? 'dn' : R <= 30 ? 'up' : '')}
+        ${T('EMA200', fmt(e200) + ' (' + pcs((P / e200 - 1) * 100) + ')', P > e200 ? 'up' : 'dn')}
+        ${T('ATR', (a.at / P * 100).toFixed(2) + '%')}
+        ${T('السبريد', (tk.askPrice && tk.bidPrice ? ((+tk.askPrice - +tk.bidPrice) / P * 100) : 0).toFixed(3) + '%')}
+      </div>
+    </div>
+  `;
+
+  // Chart
+  $('cv').style.display = 'block';
+  draw(a);
+
+  // Indicators
+  const bb = a.ind.bb[a.ind.bb.length - 1];
+  $('indicators').style.display = 'block';
+  $('indicators').innerHTML = `
+    <b>🔬 المؤشرات · 15m</b>
+    <div class="tiles" style="margin-top:8px">
+      ${T('RSI(14)', R.toFixed(1), R >= 70 ? 'dn' : R <= 30 ? 'up' : '')}
+      ${T('MACD · Signal · Hist', (a.ind.m[a.ind.m.length-1]||0).toFixed(5) + ' · ' + (a.ind.g[a.ind.g.length-1]||0).toFixed(5) + ' · ' + (a.ind.h[a.ind.h.length-1]||0).toFixed(5))}
+      ${T('EMA20', fmt(a.live.e20), P > a.live.e20 ? 'up' : 'dn')}
+      ${T('EMA50', fmt(a.live.e50), P > a.live.e50 ? 'up' : 'dn')}
+      ${T('EMA200', fmt(a.live.e200), P > a.live.e200 ? 'up' : 'dn')}
+      ${T('Bollinger', bb ? fmt(bb.l) + ' / ' + fmt(bb.m) + ' / ' + fmt(bb.u) : '–')}
+      ${T('ATR(14)', fmt(a.at) + ' (' + (a.at / P * 100).toFixed(2) + '%)')}
+    </div>
+    ${a.x.dvs.length ? `<div style="margin-top:8px"><b>تباعد RSI:</b><br>` + a.x.dvs.filter(d => a.k.length - 1 - d.i2 <= 30).slice(-3).map(d => `<span class="badge" style="background:${DVC[d.type]}33;color:${DVC[d.type]}">${DVN[d.type][1]}</span> <span class="mut">سعر ${fmt(d.p1)}→${fmt(d.p2)} · RSI ${d.r1.toFixed(0)}→${d.r2.toFixed(0)}</span>`).join('<br>') + '</div>' : ''}
+  `;
+
+  // Patterns + Sweep
+  let pH = `<b>📐 النماذج السعرية · 15m</b>`;
+  if (a.pats.length) {
+    pH += `<table style="margin-top:8px"><tr><th>النموذج</th><th>النوع</th><th>الاتجاه</th><th>الحالة</th><th>لمسات</th></tr>`;
+    a.pats.forEach(m => {
+      const dc = m.dir == 'صاعد' ? 'up' : m.dir == 'هابط' ? 'dn' : '';
+      pH += `<tr><td><b>${m.name}</b></td><td>${m.kind}</td><td class="${dc}">${m.dir}</td><td>${m.status}</td><td>${m.nph}/${m.npl}</td></tr>`;
+    });
+    pH += `</table>`;
+  } else {
+    pH += `<div class="mut" style="margin-top:8px">لا يوجد نموذج مكتمل حاليًا.</div>`;
+  }
+  const sw = a.x.sw;
+  if (sw) {
+    pH += `<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--bd)">
+      <b>🎯 Sweep + FVG (${sw.dir == 'bull' ? 'صاعد' : 'هابط'}):</b><br>
+      سحب سيولة ${sw.dir == 'bull' ? 'تحت' : 'فوق'} <b>${fmt(sw.sw)}</b> · فجوة <b>${fmt(sw.z[0])} – ${fmt(sw.z[1])}</b><br>
+      <span class="mut">الحالة: <b>${sw.state}</b> · الدخول CE ≈ <b>${fmt(sw.ce)}</b> · وقف <span class="dn">${fmt(sw.stop)}</span> · هدف <span class="up">${fmt(sw.tp)}</span> · R:R ${sw.rr.toFixed(1)}</span>
+    </div>`;
+  } else {
+    pH += `<div class="mut" style="margin-top:8px">🎯 لا يوجد Sweep + FVG حديث.</div>`;
+  }
+  $('patterns').style.display = 'block';
+  $('patterns').innerHTML = pH;
+
+  // Plan
+  $('plan').style.display = 'block';
+  const cl = a.bias == 'صاعد' ? 'up' : a.bias == 'هابط' ? 'dn' : '';
+  let h = `<b>📊 خطة الدخول · 15m</b><br>
+    <span class="mut">النموذج: <b>${a.name}</b> · الميل: <b class="${cl}">${a.bias}</b> · الحالة: ${a.state}<br>
+    مقاومة ≈ ${fmt(a.U)} · دعم ≈ ${fmt(a.D)} · ATR ≈ ${(a.at / a.price * 100).toFixed(2)}%</span>`;
+  h += `<table style="margin-top:8px"><tr><th>السيناريو</th><th>الدخول</th><th>وقف</th><th>هدف 1</th><th>هدف 2</th><th>R:R</th></tr>`;
+  a.plans.forEach(p => {
+    const z = p.z ? `${fmt(p.z[0])} – ${fmt(p.z[1])}` : '<span class="mut">—</span>';
+    const sl = p.sl ? `<span class="dn">${fmt(p.sl)}</span>` : '<span class="mut">—</span>';
+    const tp1 = p.tp1 ? `<span class="up">${fmt(p.tp1)}</span>` : '<span class="mut">—</span>';
+    const tp2 = p.tp2 ? `<span class="up">${fmt(p.tp2)}</span>` : '<span class="mut">—</span>';
+    const rr = p.rr ? p.rr.toFixed(1) : '—';
+    const badge = p.status ? `<span class="plan-status ${p.status}">${p.statusLabel}</span>` : '';
+    h += `<tr><td>${badge}${p.t}</td><td>${z}</td><td>${sl}</td><td>${tp1}</td><td>${tp2}</td><td>${rr}</td></tr>`;
+  });
+  h += `</table>`;
+  a.plans.forEach(p => { if (p.note) h += `<div class="mut" style="margin-top:6px">📝 ${p.note}</div>`; });
+  h += `<div class="mut" style="margin-top:8px">⚠ تحليل آلي على 15m — ليس نصيحة استثمارية.</div>`;
+  $('plan').innerHTML = h;
+}
+
+function T(l, v, c = '') { return `<div class="tile"><span>${l}</span><b class="${c}">${v}</b></div>`; }
+
+// ===== الأحداث =====
+$('sb').onclick = () => {
+  const q = $('q').value.trim();
+  if (q) load(q);
+};
+$('q').onkeydown = e => { if (e.key === 'Enter') { const q = $('q').value.trim(); if (q) load(q); } };
+$('every').onchange = restartTimer;
+$('auto').onchange = restartTimer;
+
+function restartTimer() {
+  clearInterval(timer);
+  if ($('auto').checked && curSym) {
+    const t = Math.max(10, +$('every').value || 30);
+    timer = setInterval(() => { if (curSym) load(curSym); }, t * 1000);
+  }
+}
+
+// Autocomplete
+(async () => {
+  try {
+    const t = await api('/api/v3/ticker/price');
+    const ks = t.filter(x => x.symbol.endsWith('USDT')).map(x => x.symbol.replace('USDT', ''));
+    $('dl').innerHTML = ks.map(s => `<option value="${s}">`).join('');
+  } catch(e) {}
+})();
+
+// تحميل عملة افتراضية
+load('BTC');
+</script>
+</body>
+</html>
