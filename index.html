@@ -297,8 +297,9 @@ function sweepFvg(k) {
     b.tp = tg != null ? tg : Math.max(...k.slice(-30).map(v => v.h));
     const r = b.ce - b.stop;
     b.rr = r > 0 ? (b.tp - b.ce) / r : 0;
-    b.state = P >= z[0] * .998 && P <= z[1] ? 'داخل منطقة الدخول ✅' : P > z[1] ? (P / z[1] - 1 < .02 ? 'قريب' : 'ابتعد') : 'أسفل الفجوة';
-  } else {
+  b.state = P >= z[0] && P <= z[1] ? 'داخل الفجوة ✅'
+    : P > z[1] ? (P / z[1] - 1 < .02 ? 'قريب (فوق الفجوة)' : 'ابتعد (فوق)')
+    : (z[0] / P - 1 < .02 ? 'قريب (تحت الفجوة) — انتظر' : 'تحت الفجوة — انتظر');  } else {
     const tg = SL.map(j => k[j].l).filter(l => l < P).sort((x, y) => y - x)[0];
     b.tp = tg != null ? tg : Math.min(...k.slice(-30).map(v => v.l));
     const r = b.stop - b.ce;
@@ -593,7 +594,18 @@ function plan15(sym, k, price) {
       if (risk > 0) { p.rr = Math.abs(p.tp2 - en) / risk; p.tp1 = (en + p.tp2) / 2; }
     }
   });
-
+  // [FIX] إذا منطقة الدخول بعيدة > 1%، لا تعرض "دخول مباشر"
+  plans.forEach(p => {
+    if (p.z && p.status === 'direct') {
+      const en = (p.z[0] + p.z[1]) / 2;
+      const dist = Math.abs(en / price - 1) * 100;
+      if (dist > 1) {
+        p.status = 'wait';
+        p.statusLabel = 'انتظار';
+        p.note = `منطقة الدخول بعيدة عن السعر بـ ${dist.toFixed(2)}% — انتظر اقتراب السعر.`;
+      }
+    }
+  });
   if (!plans.length) {
     plans.push({ t: 'لا توجد خطة دخول واضحة', z: null, sl: null, tp1: null, tp2: null, rr: 0, status: 'none', statusLabel: 'لا خطة', note: 'لم يُكتشف نموذج سعري مكتمل.' });
   }
@@ -992,12 +1004,20 @@ function render(a) {
     pH += `<div class="mut" style="margin-top:8px">لا يوجد نموذج مكتمل حاليًا.</div>`;
   }
   const sw = a.x.sw;
-  if (sw) {
+    if (sw) {
+    const dist = (sw.ce / P - 1) * 100;
+    const dir = sw.dir === 'bear' ? 'هابطة' : 'صاعدة';
+    const swDir = sw.dir === 'bear' ? 'فوق' : 'تحت';
+    const distWarn = Math.abs(dist) > 0.5
+      ? `<br><span style="color:#f5b53d">⚠ الدخول ${dist > 0 ? 'أعلى' : 'أقل'} من السعر بـ ${Math.abs(dist).toFixed(2)}% — انتظر</span>`
+      : '';
+    const rrWarn = sw.rr < 1.5 ? `<br><span style="color:#ef4444">⚠ R:R ضعيف (${sw.rr.toFixed(1)})</span>` : '';
     pH += `<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--bd)">
-      <b>🎯 Sweep + FVG (${sw.dir == 'bull' ? 'صاعد' : 'هابط'}):</b><br>
-      سحب سيولة ${sw.dir == 'bull' ? 'تحت' : 'فوق'} <b>${fmt(sw.sw)}</b> · فجوة <b>${fmt(sw.z[0])} – ${fmt(sw.z[1])}</b><br>
-      <span class="mut">الحالة: <b>${sw.state}</b> · الدخول CE ≈ <b>${fmt(sw.ce)}</b> · وقف <span class="dn">${fmt(sw.stop)}</span> · هدف <span class="up">${fmt(sw.tp)}</span> · R:R ${sw.rr.toFixed(1)}</span>
+      <b>🎯 Sweep + FVG (${dir}):</b><br>
+      سحب سيولة ${swDir} <b>${fmt(sw.sw)}</b> · فجوة <b>${fmt(sw.z[0])} – ${fmt(sw.z[1])}</b><br>
+      <span class="mut">الحالة: <b>${sw.state}</b> · الدخول CE ≈ <b>${fmt(sw.ce)}</b> (${dist > 0 ? '+' : ''}${dist.toFixed(2)}% من السعر) · وقف <span class="dn">${fmt(sw.stop)}</span> · هدف <span class="up">${fmt(sw.tp)}</span> · R:R ${sw.rr.toFixed(1)}${distWarn}${rrWarn}</span>
     </div>`;
+  }
   } else {
     pH += `<div class="mut" style="margin-top:8px">🎯 لا يوجد Sweep + FVG حديث.</div>`;
   }
